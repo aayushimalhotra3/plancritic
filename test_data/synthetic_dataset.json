@@ -1,0 +1,64 @@
+{
+  "scenes": [
+    {
+      "scene_id": "test_scene_001",
+      "timestamp": 1000000,
+      "ego_state": {
+        "position": [0.0, 0.0],
+        "velocity": [5.0, 0.0],
+        "heading": 0.0,
+        "acceleration": [0.0, 0.0]
+      },
+      "agent_states": [
+        {
+          "agent_id": "agent_001",
+          "position": [10.0, 3.0],
+          "velocity": [4.0, 0.0],
+          "heading": 0.1,
+          "acceleration": [0.0, 0.0]
+        }
+      ],
+      "lane_graph": {
+        "lanes": [
+          {
+            "lane_id": "lane_001",
+            "centerline": [[0.0, 0.0], [50.0, 0.0], [100.0, 0.0]],
+            "left_boundary": [[0.0, 1.8], [50.0, 1.8], [100.0, 1.8]],
+            "right_boundary": [[0.0, -1.8], [50.0, -1.8], [100.0, -1.8]],
+            "speed_limit": 13.89
+          }
+        ]
+      },
+      "candidate_trajectories": [
+        {
+          "candidate_id": "cand_001",
+          "waypoints": [
+            [0.0, 0.0, 5.0, 0.0],
+            [5.0, 0.0, 5.0, 0.0],
+            [10.0, 0.0, 5.0, 0.0],
+            [15.0, 0.0, 5.0, 0.0],
+            [20.0, 0.0, 5.0, 0.0]
+          ],
+          "metadata": {
+            "planner": "test_planner",
+            "confidence": 0.9
+          }
+        },
+        {
+          "candidate_id": "cand_002",
+          "waypoints": [
+            [0.0, 0.0, 4.0, 0.5],
+            [4.0, 0.5, 4.0, 0.5],
+            [8.0, 1.0, 4.0, 0.5],
+            [12.0, 1.5, 4.0, 0.5],
+            [16.0, 2.0, 4.0, 0.5]
+          ],
+          "metadata": {
+            "planner": "test_planner",
+            "confidence": 0.7
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "metadata": {
+    "dataset": "womd",
+    "total_scenes": 1,
+    "export_timestamp": "2024-01-01T00:00:00Z",
+    "physics_analysis_enabled": true
+  },
+  "scenes": [
+    {
+      "scene_id": "scene_training_001",
+      "file_path": "scene_training_001.json"
+    }
+  ]
+}

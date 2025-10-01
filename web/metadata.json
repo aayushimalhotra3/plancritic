@@ -1,0 +1,9 @@
+{
+  "dataset": "womd",
+  "data_path": "/Users/aayushimalhotra/deepdive/test_data",
+  "export_timestamp": "2025-09-30T21:31:05",
+  "total_scenes": 1,
+  "include_predictions": false,
+  "include_physics": true,
+  "export_format": "json"
+}

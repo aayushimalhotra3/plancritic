@@ -1,0 +1,266 @@
+# Pre-commit hooks configuration for PlanCritic
+# See https://pre-commit.com for more information
+
+repos:
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(.*\.md|.*\.rst)$
+      - id: end-of-file-fixer
+        exclude: ^(.*\.md|.*\.rst)$
+      - id: check-yaml
+        args: ['--unsafe']
+      - id: check-json
+      - id: check-toml
+      - id: check-xml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: debug-statements
+      - id: detect-private-key
+      - id: fix-byte-order-marker
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Python code formatting with Black
+  - repo: https://github.com/psf/black
+    rev: 23.7.0
+    hooks:
+      - id: black
+        language_version: python3
+        args: ['--line-length=88']
+        exclude: ^(docs/|web/)
+
+  # Import sorting with isort
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        args: ['--profile=black', '--line-length=88']
+        exclude: ^(docs/|web/)
+
+  # Linting with flake8
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        args: ['--max-line-length=88', '--extend-ignore=E203,W503,E501']
+        exclude: ^(docs/|web/|tests/conftest.py)
+        additional_dependencies:
+          - flake8-docstrings
+          - flake8-bugbear
+          - flake8-comprehensions
+          - flake8-simplify
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.5.1
+    hooks:
+      - id: mypy
+        exclude: ^(docs/|web/|tests/|setup.py|notebooks/)
+        additional_dependencies:
+          - types-PyYAML
+          - types-requests
+          - types-setuptools
+        args: ['--ignore-missing-imports', '--no-strict-optional']
+
+  # Security linting with bandit
+  - repo: https://github.com/pycqa/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        args: ['-r', 'src/', '-f', 'json']
+        exclude: ^tests/
+
+  # Upgrade Python syntax
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.10.1
+    hooks:
+      - id: pyupgrade
+        args: ['--py38-plus']
+        exclude: ^(docs/|web/)
+
+  # Remove unused imports
+  - repo: https://github.com/pycqa/autoflake
+    rev: v2.2.0
+    hooks:
+      - id: autoflake
+        args:
+          - --in-place
+          - --remove-all-unused-imports
+          - --remove-unused-variables
+          - --remove-duplicate-keys
+          - --ignore-init-module-imports
+        exclude: ^(docs/|web/)
+
+  # Docstring formatting
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        exclude: ^(tests/|docs/|web/|setup.py)
+        args:
+          - --convention=google
+          - --add-ignore=D100,D101,D102,D103,D104,D105,D106,D107
+
+  # YAML formatting
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.0.0
+    hooks:
+      - id: prettier
+        types_or: [yaml, json, markdown]
+        exclude: ^(web/|docs/_build/)
+        args: ['--tab-width=2', '--prose-wrap=always']
+
+  # Jupyter notebook cleaning
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.7.0
+    hooks:
+      - id: nbqa-black
+        args: ['--line-length=88']
+      - id: nbqa-isort
+        args: ['--profile=black']
+      - id: nbqa-flake8
+        args: ['--max-line-length=88', '--extend-ignore=E203,W503,E402']
+
+  # Clear notebook outputs
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.6.1
+    hooks:
+      - id: nbstripout
+        args: ['--extra-keys=metadata.kernelspec metadata.language_info.version']
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.5
+    hooks:
+      - id: shellcheck
+        exclude: ^web/
+
+  # Dockerfile linting
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        args: ['--ignore', 'DL3008', '--ignore', 'DL3009']
+
+  # Web-specific hooks for the Next.js app
+  - repo: local
+    hooks:
+      # ESLint for TypeScript/JavaScript
+      - id: eslint
+        name: ESLint
+        entry: bash -c 'cd web && npm run lint'
+        language: system
+        files: ^web/.*\.(ts|tsx|js|jsx)$
+        pass_filenames: false
+
+      # Prettier for web files
+      - id: prettier-web
+        name: Prettier (Web)
+        entry: bash -c 'cd web && npx prettier --write'
+        language: system
+        files: ^web/.*\.(ts|tsx|js|jsx|css|json|md)$
+        pass_filenames: true
+
+      # TypeScript type checking
+      - id: tsc
+        name: TypeScript Check
+        entry: bash -c 'cd web && npx tsc --noEmit'
+        language: system
+        files: ^web/.*\.(ts|tsx)$
+        pass_filenames: false
+
+  # Python package security
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
+    rev: v1.3.2
+    hooks:
+      - id: python-safety-dependencies-check
+        files: requirements.*\.txt$
+
+  # Commit message formatting
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.6.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  # Local custom hooks
+  - repo: local
+    hooks:
+      # Check for TODO/FIXME comments in production code
+      - id: check-todos
+        name: Check for TODO/FIXME
+        entry: bash -c 'if grep -r "TODO\|FIXME" src/ --exclude-dir=__pycache__; then echo "Remove TODO/FIXME comments before committing"; exit 1; fi'
+        language: system
+        pass_filenames: false
+
+      # Ensure test files exist for new modules
+      - id: check-test-coverage
+        name: Check test coverage
+        entry: python scripts/check_test_coverage.py
+        language: system
+        files: ^src/.*\.py$
+        pass_filenames: true
+
+      # Validate configuration files
+      - id: validate-configs
+        name: Validate configuration files
+        entry: python scripts/validate_configs.py
+        language: system
+        files: ^(.*\.yaml|.*\.yml|.*\.json)$
+        pass_filenames: true
+
+      # Check for large files that shouldn't be committed
+      - id: check-large-files-custom
+        name: Check for large files
+        entry: bash -c 'find . -type f -size +10M -not -path "./.git/*" -not -path "./web/node_modules/*" -not -path "./.venv/*" | grep -v "\.git" && echo "Large files found" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+
+      # Ensure proper Python imports
+      - id: check-imports
+        name: Check Python imports
+        entry: python -c "import ast, sys; [ast.parse(open(f).read()) for f in sys.argv[1:]]"
+        language: system
+        files: \.py$
+
+# Configuration for specific hooks
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false
+
+# Exclude patterns
+exclude: |
+  (?x)^(
+      \.git/.*|
+      \.venv/.*|
+      venv/.*|
+      env/.*|
+      __pycache__/.*|
+      \.pytest_cache/.*|
+      \.mypy_cache/.*|
+      \.tox/.*|
+      build/.*|
+      dist/.*|
+      \.egg-info/.*|
+      web/node_modules/.*|
+      web/\.next/.*|
+      web/out/.*|
+      docs/_build/.*|
+      htmlcov/.*|
+      .*\.egg-info/.*|
+      migrations/.*
+  )$
