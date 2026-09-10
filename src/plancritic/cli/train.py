@@ -26,8 +26,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from plancritic.models.critic import TrajectoryCritic, MultiCandidateCritic
 from plancritic.models.encoders import StateEncoder, LaneGraphEncoder, TrajectoryEncoder
 from plancritic.models.losses import CriticLoss, PhysicsLoss
-from plancritic.data.samplers import TrajectorySampler, DataCollator
-from plancritic.data.adapters import WOMDAdapter, ArgoverseAdapter
+from plancritic.data.samplers import TrajectorySampler, DataCollator, SceneData, TrajectoryCandidate
+from plancritic.data.synthetic import SyntheticScenarioGenerator
 from plancritic.eval.physics_checks import PhysicsChecker
 from plancritic.eval.metrics import CriticEvaluator
 
@@ -71,12 +71,15 @@ class TrainingConfig:
         }
         
         self.data = {
-            "dataset": "womd",  # "womd" or "argoverse"
+            "dataset": "synthetic",  # "synthetic", "womd", or "argoverse"
             "data_path": "./data",
             "num_workers": 4,
             "max_candidates": 8,
             "sequence_length": 80,
-            "prediction_horizon": 80
+            "prediction_horizon": 80,
+            "synthetic_seed": 42,
+            "synthetic_num_train": 400,
+            "synthetic_num_val": 80,
         }
         
         self.physics = {
@@ -216,7 +219,13 @@ class Trainer:
         
         # Initialize loss function
         self.criterion = CriticLoss()
-        
+
+        # Initialize physics loss (differentiable regularizer)
+        self.physics_loss_fn = PhysicsLoss(
+            ttc_threshold=self.config.physics.get("ttc_threshold", 3.0),
+            jerk_threshold=self.config.physics.get("jerk_threshold", 2.0),
+        )
+
         # Initialize physics checker with proper config
         from plancritic.eval.physics_checks import PhysicsConfig
         physics_config = PhysicsConfig(
@@ -242,65 +251,72 @@ class Trainer:
     def setup_data(self) -> tuple:
         """Setup data loaders."""
         self.logger.info("Setting up data loaders...")
-        
-        # Initialize data adapter
-        if self.config.data["dataset"] == "womd":
-            from plancritic.data.adapters import WOMDConfig
-            womd_config = WOMDConfig(
-                data_dir=self.config.data["data_path"],
-                split="training",
-                max_scenes=self.config.data.get("max_scenes", None)
+
+        dataset = self.config.data["dataset"]
+
+        if dataset == "synthetic":
+            seed = self.config.data.get("synthetic_seed", 42)
+            n_cand = self.config.data["max_candidates"]
+            horizon = self.config.data.get("prediction_horizon", 80)
+            train_scenes = SyntheticScenarioGenerator(
+                seed=seed, split="train",
+                num_scenarios=self.config.data.get("synthetic_num_train", 400),
+                num_candidates=n_cand, horizon=horizon,
+            ).generate(with_labels=True)
+            val_scenes = SyntheticScenarioGenerator(
+                seed=seed, split="val",
+                num_scenarios=self.config.data.get("synthetic_num_val", 80),
+                num_candidates=n_cand, horizon=horizon,
+            ).generate(with_labels=True)
+            self.logger.info(
+                f"Synthetic data: {len(train_scenes)} train, "
+                f"{len(val_scenes)} val scenes (seed={seed})"
             )
-            adapter = WOMDAdapter(womd_config)
-        elif self.config.data["dataset"] == "argoverse":
-            from plancritic.data.adapters import ArgoverseConfig
-            argoverse_config = ArgoverseConfig(
-                data_dir=self.config.data["data_path"],
-                split="train",
-                max_scenes=self.config.data.get("max_scenes", None)
-            )
-            adapter = ArgoverseAdapter(argoverse_config)
+        elif dataset in ("womd", "argoverse"):
+            if dataset == "womd":
+                from plancritic.data.adapters import WOMDAdapter, WOMDConfig
+                adapter = WOMDAdapter(WOMDConfig(
+                    data_dir=self.config.data["data_path"],
+                    split="training",
+                    max_scenes=self.config.data.get("max_scenes", None),
+                ))
+            else:
+                from plancritic.data.adapters import ArgoverseAdapter, ArgoverseConfig
+                adapter = ArgoverseAdapter(ArgoverseConfig(
+                    data_dir=self.config.data["data_path"],
+                    split="train",
+                    max_scenes=self.config.data.get("max_scenes", None),
+                ))
+            scenes = list(adapter.load_scenes())
+            split_idx = int(0.8 * len(scenes))
+            train_scenes = scenes[:split_idx] if split_idx > 0 else scenes
+            val_scenes = (scenes[split_idx:]
+                          if split_idx > 0 and split_idx < len(scenes)
+                          else scenes[:1])
         else:
-            raise ValueError(f"Unknown dataset: {self.config.data['dataset']}")
-            
-        # Initialize samplers
-        train_sampler = TrajectorySampler(
-            max_candidates=self.config.data["max_candidates"]
+            raise ValueError(f"Unknown dataset: {dataset}")
+
+        collator = DataCollator(
+            max_candidates=self.config.data["max_candidates"],
+            trajectory_length=self.config.data.get("prediction_horizon", 80),
         )
-        
-        val_sampler = TrajectorySampler(
-            max_candidates=self.config.data["max_candidates"]
-        )
-        
-        # Initialize data collator
-        collator = DataCollator()
-        
-        # Load scenes from adapter
-        scenes = list(adapter.load_scenes())
-        
-        # Split scenes into train/val
-        split_idx = int(0.8 * len(scenes))
-        train_scenes = scenes[:split_idx] if split_idx > 0 else scenes
-        val_scenes = scenes[split_idx:] if split_idx > 0 and split_idx < len(scenes) else scenes[:1]
-        
-        # Create data loaders
+
         train_loader = DataLoader(
             train_scenes,
             batch_size=self.config.training["batch_size"],
             shuffle=True,
-            collate_fn=collator.collate
+            collate_fn=collator.collate,
         )
-        
         val_loader = DataLoader(
             val_scenes,
             batch_size=self.config.training["batch_size"],
             shuffle=False,
-            collate_fn=collator.collate
+            collate_fn=collator.collate,
         )
-        
+
         self.logger.info(f"Train loader: {len(train_loader)} batches")
         self.logger.info(f"Val loader: {len(val_loader)} batches")
-        
+
         return train_loader, val_loader
         
     def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
@@ -318,8 +334,7 @@ class Trainer:
         
         for batch in progress_bar:
             # Move batch to device
-            batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
-                    for k, v in batch.items()}
+            batch = self._batch_to_device(batch)
             
             # Forward pass
             self.optimizer.zero_grad()
@@ -348,24 +363,64 @@ class Trainer:
                 cand_feats=cand_feats
             )
             
-            # Generate physics-based labels
-            physics_labels = self._generate_physics_labels(batch)
-            
-            # Compute loss - the criterion expects outputs dict and targets dict
+            # Use precomputed labels (synthetic) or compute on the fly
+            if "physics_labels" in batch:
+                physics_labels = batch["physics_labels"]
+            else:
+                physics_labels = self._generate_physics_labels(batch)
+
+            # Compute loss
             loss, loss_components = self.criterion(outputs, physics_labels)
-            
-            # Skip physics loss for now since we don't have proper trajectory data
-            # physics_loss = PhysicsLoss()(outputs, batch)
-            # total_loss = critic_loss + 0.1 * physics_loss
-            
+
             total_loss_value = loss
-            
-            # Skip physics loss for now - disable it in config
-            # if self.config.physics["use_physics_loss"]:
-            #     physics_loss = PhysicsLoss()(outputs, batch)
-            #     physics_loss_weighted = self.config.physics["physics_loss_weight"] * physics_loss
-            #     total_loss_value += physics_loss_weighted
-            #     total_physics_loss += physics_loss.item()
+
+            # Physics loss: differentiable TTC, jerk, and progress regularizer
+            if self.config.physics["use_physics_loss"]:
+                B, N, T, D = batch["trajectories"].shape
+
+                # Flatten candidates into batch dimension
+                traj_flat = batch["trajectories"].view(B * N, T, D)
+
+                # Agent states (first 4 dims: x, y, vx, vy)
+                agent_st = batch["agent_states"][:, :, :4]
+                num_agents = agent_st.shape[1]
+                agent_st_flat = agent_st.unsqueeze(1).expand(
+                    -1, N, -1, -1
+                ).reshape(B * N, num_agents, 4)
+
+                agent_m = batch["agent_masks"]
+                agent_m_flat = agent_m.unsqueeze(1).expand(
+                    -1, N, -1
+                ).reshape(B * N, num_agents)
+
+                # Route waypoints (fall back to straight-ahead from ego)
+                route_wp = batch.get("route_waypoints")
+                if route_wp is None:
+                    route_wp = torch.zeros(B, 10, 2, device=self.device)
+                    for ri in range(10):
+                        route_wp[:, ri, 0] = batch["ego_states"][:, 0] + (ri + 1) * 5.0
+                        route_wp[:, ri, 1] = batch["ego_states"][:, 1]
+                n_route = route_wp.shape[1]
+                route_wp_flat = route_wp.unsqueeze(1).expand(
+                    -1, N, -1, -1
+                ).reshape(B * N, n_route, 2)
+
+                # Flatten model predictions to match
+                pred_flat = {
+                    k: v.view(B * N, 1)
+                    for k, v in outputs.items()
+                    if k in ("risk", "comfort", "progress")
+                }
+
+                physics_loss, _ = self.physics_loss_fn(
+                    pred_flat, traj_flat, agent_st_flat,
+                    route_wp_flat, agent_m_flat
+                )
+                physics_loss_weighted = (
+                    self.config.physics["physics_loss_weight"] * physics_loss
+                )
+                total_loss_value = total_loss_value + physics_loss_weighted
+                total_physics_loss += physics_loss.item()
             
             # Backward pass
             total_loss_value.backward()
@@ -414,8 +469,7 @@ class Trainer:
         with torch.no_grad():
             for batch in tqdm(val_loader, desc="Validation"):
                 # Move batch to device
-                batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
-                        for k, v in batch.items()}
+                batch = self._batch_to_device(batch)
                 
                 # Encode features
                 state_feats = self.state_encoder(batch["ego_states"])
@@ -442,9 +496,12 @@ class Trainer:
                     cand_feats=cand_feats
                 )
                 
-                # Generate physics-based labels
-                physics_labels = self._generate_physics_labels(batch)
-                
+                # Use precomputed labels (synthetic) or compute on the fly
+                if "physics_labels" in batch:
+                    physics_labels = batch["physics_labels"]
+                else:
+                    physics_labels = self._generate_physics_labels(batch)
+
                 # Compute loss
                 loss, loss_components = self.criterion(outputs, physics_labels)
                 total_loss += loss.item()
@@ -490,25 +547,91 @@ class Trainer:
             **metrics.to_dict()
         }
         
+    def _batch_to_device(self, batch: Dict) -> Dict:
+        """Move a batch dict (possibly with nested dicts) to self.device."""
+        out = {}
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                out[k] = v.to(self.device)
+            elif isinstance(v, dict):
+                out[k] = {
+                    dk: dv.to(self.device) if isinstance(dv, torch.Tensor) else dv
+                    for dk, dv in v.items()
+                }
+            else:
+                out[k] = v
+        return out
+
     def _generate_physics_labels(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Generate physics-based pseudo-labels."""
-        # This is a simplified version - in practice, you'd use the physics checker
-        # to analyze trajectories and generate labels
-        
-        batch_size = batch["trajectories"].shape[0]
-        num_candidates = batch["trajectories"].shape[1]
-        device = batch["trajectories"].device
-        
-        # Generate dummy labels for now
-        # In practice, these would come from physics analysis
-        # The model outputs shape [B, N, 1], so targets should match
-        labels = {
-            "risk": torch.rand(batch_size, num_candidates, 1, device=device),
-            "comfort": torch.rand(batch_size, num_candidates, 1, device=device),
-            "progress": torch.rand(batch_size, num_candidates, 1, device=device)
+        """Generate physics-based pseudo-labels using PhysicsChecker.
+
+        Computes collision risk (TTC + distance), comfort (jerk), and
+        progress scores for each candidate trajectory in the batch.
+        """
+        trajectories = batch["trajectories"]  # [B, N, T, 4]
+        batch_size, num_candidates, seq_len, _ = trajectories.shape
+        device = trajectories.device
+
+        risk_labels = torch.zeros(batch_size, num_candidates, 1, device=device)
+        comfort_labels = torch.ones(batch_size, num_candidates, 1, device=device)
+        progress_labels = torch.zeros(batch_size, num_candidates, 1, device=device)
+
+        # Move to numpy for PhysicsChecker
+        traj_np = trajectories.detach().cpu().numpy()
+        agent_states_np = batch["agent_states"].detach().cpu().numpy()
+        agent_masks_np = batch["agent_masks"].detach().cpu().numpy().astype(bool)
+        ego_states_np = batch["ego_states"].detach().cpu().numpy()
+        traj_masks = batch.get("trajectory_masks")
+
+        route_wp_t = batch.get("route_waypoints")
+        route_mask_t = batch.get("route_masks")
+
+        dt = self.physics_checker.config.dt
+
+        for b in range(batch_size):
+            # Unpad route waypoints
+            if route_wp_t is not None and route_mask_t is not None:
+                rm = route_mask_t[b].detach().cpu().numpy().astype(bool)
+                rw = route_wp_t[b].detach().cpu().numpy()[rm]
+            else:
+                rw = np.zeros((0, 2))
+
+            scene = SceneData(
+                ego_state=ego_states_np[b],
+                lane_graph={},
+                agent_states=agent_states_np[b],
+                agent_mask=agent_masks_np[b],
+                route_waypoints=rw,
+                candidates=[],
+                scene_id="",
+                timestamp=0.0,
+            )
+
+            for c in range(num_candidates):
+                if traj_masks is not None and not traj_masks[b, c]:
+                    continue
+
+                candidate = TrajectoryCandidate(
+                    waypoints=traj_np[b, c],
+                    timestamps=np.arange(seq_len) * dt,
+                    metadata={},
+                )
+
+                risk_labels[b, c, 0] = self.physics_checker.compute_collision_risk(
+                    candidate, scene
+                )
+                comfort_labels[b, c, 0] = self.physics_checker.compute_comfort_score(
+                    candidate
+                )
+                progress_labels[b, c, 0] = self.physics_checker.compute_progress_score(
+                    candidate, scene
+                )
+
+        return {
+            "risk": risk_labels,
+            "comfort": comfort_labels,
+            "progress": progress_labels,
         }
-        
-        return labels
         
     def save_checkpoint(self, epoch: int, is_best: bool = False) -> None:
         """Save model checkpoint."""
@@ -621,10 +744,10 @@ def main():
         help="Experiment name"
     )
     parser.add_argument(
-        "--dataset", 
-        type=str, 
-        choices=["womd", "argoverse"],
-        default="womd",
+        "--dataset",
+        type=str,
+        choices=["synthetic", "womd", "argoverse"],
+        default="synthetic",
         help="Dataset to use"
     )
     parser.add_argument(
