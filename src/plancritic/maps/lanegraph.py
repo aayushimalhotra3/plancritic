@@ -13,6 +13,10 @@ from typing import Dict, List, Tuple, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
 
+from torch_geometric.nn import MessagePassing
+from torch_geometric.utils import dense_to_sparse
+from torch_geometric.data import Data, Batch
+
 
 class LaneType(Enum):
     """Lane type enumeration."""
@@ -471,8 +475,8 @@ class PolylineEncoder(nn.Module):
 
 
 class LaneGNNEncoder(nn.Module):
-    """Graph Neural Network encoder for lane connectivity."""
-    
+    """Graph Neural Network encoder for lane connectivity using PyG."""
+
     def __init__(
         self,
         hidden_dim: int = 64,
@@ -480,15 +484,14 @@ class LaneGNNEncoder(nn.Module):
         dropout: float = 0.1
     ):
         super().__init__()
-        
+
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
-        
-        # GNN layers
+
         self.gnn_layers = nn.ModuleList([
             LaneGNNLayer(hidden_dim, dropout) for _ in range(num_layers)
         ])
-        
+
     def forward(
         self,
         node_features: torch.Tensor,
@@ -497,96 +500,107 @@ class LaneGNNEncoder(nn.Module):
     ) -> torch.Tensor:
         """
         Apply GNN layers.
-        
+
+        Converts the dense adjacency matrix to sparse edge_index format
+        and processes through PyG MessagePassing layers.
+
         Args:
             node_features: Node features [B, N, H]
             node_mask: Node mask [B, N]
             adjacency: Adjacency matrix [B, N, N]
-            
+
         Returns:
             Updated node features [B, N, H]
         """
-        x = node_features
-        
+        B, N, H = node_features.shape
+
+        # Build a PyG Batch from the dense inputs
+        data_list = []
+        for b in range(B):
+            edge_index, edge_weight = dense_to_sparse(adjacency[b])
+            data_list.append(Data(
+                x=node_features[b],
+                edge_index=edge_index,
+                edge_attr=edge_weight,
+            ))
+        pyg_batch = Batch.from_data_list(data_list)
+
+        x = pyg_batch.x  # [B*N, H]
+        mask_flat = node_mask.view(B * N).unsqueeze(-1)  # [B*N, 1]
+
         for layer in self.gnn_layers:
-            x = layer(x, node_mask, adjacency)
-            
-        return x
+            x = layer(x, pyg_batch.edge_index, pyg_batch.edge_attr)
+            x = x * mask_flat  # zero out padding nodes after each layer
+
+        return x.view(B, N, H)
 
 
-class LaneGNNLayer(nn.Module):
-    """Single GNN layer for lane graph processing."""
-    
+class LaneGNNLayer(MessagePassing):
+    """
+    Single GNN layer using PyG MessagePassing.
+
+    Message function: MLP(concat(x_i, x_j)) * edge_weight
+    Update function: MLP(concat(x, aggregated)) with residual + LayerNorm
+    Aggregation: sum
+    """
+
     def __init__(self, hidden_dim: int, dropout: float = 0.1):
-        super().__init__()
-        
+        super().__init__(aggr="add")
+
         self.hidden_dim = hidden_dim
-        
-        # Message passing
+
         self.message_net = nn.Sequential(
             nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim)
         )
-        
-        # Update function
+
         self.update_net = nn.Sequential(
             nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim)
         )
-        
+
         self.dropout = nn.Dropout(dropout)
         self.layer_norm = nn.LayerNorm(hidden_dim)
-        
+
     def forward(
         self,
         x: torch.Tensor,
-        mask: torch.Tensor,
-        adjacency: torch.Tensor
+        edge_index: torch.Tensor,
+        edge_weight: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
-        Forward pass through GNN layer.
-        
         Args:
-            x: Node features [B, N, H]
-            mask: Node mask [B, N]
-            adjacency: Adjacency matrix [B, N, N]
-            
+            x: Node features [num_nodes, H]
+            edge_index: Edge indices [2, num_edges]
+            edge_weight: Edge weights [num_edges]
+
         Returns:
-            Updated node features [B, N, H]
+            Updated node features [num_nodes, H]
         """
-        batch_size, num_nodes, hidden_dim = x.shape
-        
-        # Compute messages
-        x_expanded = x.unsqueeze(2).expand(-1, -1, num_nodes, -1)  # [B, N, N, H]
-        x_neighbors = x.unsqueeze(1).expand(-1, num_nodes, -1, -1)  # [B, N, N, H]
-        
-        # Concatenate node and neighbor features
-        edge_features = torch.cat([x_expanded, x_neighbors], dim=-1)  # [B, N, N, 2H]
-        
-        # Compute messages
-        messages = self.message_net(edge_features)  # [B, N, N, H]
-        
-        # Apply adjacency mask
-        adjacency_mask = adjacency.unsqueeze(-1)  # [B, N, N, 1]
-        messages = messages * adjacency_mask
-        
-        # Aggregate messages
-        aggregated = messages.sum(dim=2)  # [B, N, H]
-        
-        # Update nodes
-        update_input = torch.cat([x, aggregated], dim=-1)  # [B, N, 2H]
-        updates = self.update_net(update_input)  # [B, N, H]
-        
-        # Residual connection and normalization
-        x_new = x + self.dropout(updates)
+        residual = x
+        aggregated = self.propagate(edge_index, x=x, edge_weight=edge_weight)
+
+        update_input = torch.cat([x, aggregated], dim=-1)
+        updates = self.update_net(update_input)
+
+        x_new = residual + self.dropout(updates)
         x_new = self.layer_norm(x_new)
-        
-        # Apply node mask
-        x_new = x_new * mask.unsqueeze(-1)
-        
         return x_new
+
+    def message(
+        self,
+        x_i: torch.Tensor,
+        x_j: torch.Tensor,
+        edge_weight: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """Compute messages from source j to target i."""
+        edge_features = torch.cat([x_i, x_j], dim=-1)
+        msg = self.message_net(edge_features)
+        if edge_weight is not None:
+            msg = msg * edge_weight.unsqueeze(-1)
+        return msg
 
 
 class LaneAttentionEncoder(nn.Module):
