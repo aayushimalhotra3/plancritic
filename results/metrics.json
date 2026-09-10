@@ -1,0 +1,9 @@
+{
+  "collision_auroc": 0.8072033333333334,
+  "spearman_risk": 0.6644808021126981,
+  "spearman_comfort": 0.7494376474723641,
+  "spearman_progress": 0.8477122137045181,
+  "mae_risk": 0.40157149112783375,
+  "mae_comfort": 0.029555397971453203,
+  "mae_progress": 0.07130836568772793
+}
