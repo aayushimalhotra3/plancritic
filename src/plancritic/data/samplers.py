@@ -373,20 +373,23 @@ class DataCollator:
         max_agents: int = 32,
         max_candidates: int = 16,
         trajectory_length: int = 80,
+        max_route_points: int = 50,
         device: str = "cpu"
     ):
         """
         Initialize data collator.
-        
+
         Args:
             max_agents: Maximum number of agents per scene
             max_candidates: Maximum number of trajectory candidates
             trajectory_length: Fixed trajectory length
+            max_route_points: Maximum number of route waypoints
             device: Target device for tensors
         """
         self.max_agents = max_agents
         self.max_candidates = max_candidates
         self.trajectory_length = trajectory_length
+        self.max_route_points = max_route_points
         self.device = device
         
     def collate(self, scenes: List[SceneData]) -> Dict[str, torch.Tensor]:
@@ -412,17 +415,23 @@ class DataCollator:
         trajectory_masks = torch.zeros(
             batch_size, self.max_candidates, dtype=torch.bool, device=self.device
         )
-        
+        route_waypoints = torch.zeros(
+            batch_size, self.max_route_points, 2, device=self.device
+        )
+        route_masks = torch.zeros(
+            batch_size, self.max_route_points, dtype=torch.bool, device=self.device
+        )
+
         # Fill batch tensors
         for i, scene in enumerate(scenes):
             # Ego state
             ego_states[i] = torch.from_numpy(scene.ego_state).float()
-            
+
             # Agent states
             n_agents = min(len(scene.agent_states), self.max_agents)
             agent_states[i, :n_agents] = torch.from_numpy(scene.agent_states[:n_agents]).float()
             agent_masks[i, :n_agents] = torch.from_numpy(scene.agent_mask[:n_agents])
-            
+
             # Trajectory candidates
             n_candidates = min(len(scene.candidates), self.max_candidates)
             for j, candidate in enumerate(scene.candidates[:n_candidates]):
@@ -431,12 +440,53 @@ class DataCollator:
                     candidate.waypoints[:traj_len]
                 ).float()
                 trajectory_masks[i, j] = True
-                
-        return {
+
+            # Route waypoints
+            if scene.route_waypoints is not None and len(scene.route_waypoints) > 0:
+                n_route = min(len(scene.route_waypoints), self.max_route_points)
+                route_waypoints[i, :n_route] = torch.from_numpy(
+                    scene.route_waypoints[:n_route]
+                ).float()
+                route_masks[i, :n_route] = True
+
+        batch = {
             "ego_states": ego_states,
             "agent_states": agent_states,
             "agent_masks": agent_masks,
             "trajectories": trajectories,
             "trajectory_masks": trajectory_masks,
-            "batch_size": batch_size
+            "route_waypoints": route_waypoints,
+            "route_masks": route_masks,
+            "batch_size": batch_size,
         }
+
+        # Extract precomputed labels from candidate metadata if available.
+        # The synthetic generator stores risk/comfort/progress/collided there.
+        first_scene = scenes[0]
+        if (first_scene.candidates
+                and "risk" in first_scene.candidates[0].metadata):
+            risk_labels = torch.zeros(
+                batch_size, self.max_candidates, 1, device=self.device)
+            comfort_labels = torch.ones(
+                batch_size, self.max_candidates, 1, device=self.device)
+            progress_labels = torch.zeros(
+                batch_size, self.max_candidates, 1, device=self.device)
+            collided_labels = torch.zeros(
+                batch_size, self.max_candidates, 1, device=self.device)
+
+            for i, scene in enumerate(scenes):
+                n_cand = min(len(scene.candidates), self.max_candidates)
+                for j, cand in enumerate(scene.candidates[:n_cand]):
+                    risk_labels[i, j, 0] = cand.metadata["risk"]
+                    comfort_labels[i, j, 0] = cand.metadata["comfort"]
+                    progress_labels[i, j, 0] = cand.metadata["progress"]
+                    collided_labels[i, j, 0] = float(cand.metadata["collided"])
+
+            batch["physics_labels"] = {
+                "risk": risk_labels,
+                "comfort": comfort_labels,
+                "progress": progress_labels,
+                "collided": collided_labels,
+            }
+
+        return batch

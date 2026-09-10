@@ -169,13 +169,22 @@ class SyntheticScenarioGenerator:
     # Public API
     # ------------------------------------------------------------------
 
-    def generate(self) -> List[SceneData]:
-        """Generate all scenarios (deterministic given seed + split)."""
+    def generate(self, with_labels: bool = True) -> List[SceneData]:
+        """Generate all scenarios (deterministic given seed + split).
+
+        When *with_labels* is True (the default) physics pseudo-labels
+        are computed and baked into each candidate's metadata dict so
+        the DataCollator can extract them into the batch.
+        """
         scenes = []
         for i in range(self.num_scenarios):
             rng = np.random.RandomState(self.base_seed + i)
             builder = self._builders[i % len(self._builders)]
             scene = builder(rng, scene_idx=i)
+
+            if with_labels:
+                self._attach_labels(scene)
+
             scenes.append(scene)
         return scenes
 
@@ -188,23 +197,34 @@ class SyntheticScenarioGenerator:
         per candidate) with keys: risk, comfort, progress, composite,
         collided (bool).
         """
-        scenes = self.generate()
+        scenes = self.generate(with_labels=True)
         results = []
         for scene in scenes:
             labels = []
             for cand in scene.candidates:
-                scores = self.physics_checker.evaluate_trajectory(cand, scene)
-                scores["collided"] = _check_collided(
-                    cand.waypoints,
-                    scene.agent_states,
-                    scene.agent_mask,
-                    self.dt,
-                    self.physics_config.vehicle_length,
-                    self.physics_config.vehicle_width,
-                )
-                labels.append(scores)
+                labels.append({
+                    "risk": cand.metadata["risk"],
+                    "comfort": cand.metadata["comfort"],
+                    "progress": cand.metadata["progress"],
+                    "composite": cand.metadata["composite"],
+                    "collided": cand.metadata["collided"],
+                })
             results.append((scene, labels))
         return results
+
+    def _attach_labels(self, scene: SceneData) -> None:
+        """Compute physics labels and store them in candidate metadata."""
+        for cand in scene.candidates:
+            scores = self.physics_checker.evaluate_trajectory(cand, scene)
+            cand.metadata.update(scores)
+            cand.metadata["collided"] = _check_collided(
+                cand.waypoints,
+                scene.agent_states,
+                scene.agent_mask,
+                self.dt,
+                self.physics_config.vehicle_length,
+                self.physics_config.vehicle_width,
+            )
 
     # ------------------------------------------------------------------
     # Scenario builders
