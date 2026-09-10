@@ -13,6 +13,8 @@ import torch.nn.functional as F
 from typing import Optional, Tuple, Dict, List
 import math
 
+from torch_geometric.nn import GCNConv, global_mean_pool
+
 
 class StateEncoder(nn.Module):
     """
@@ -113,88 +115,66 @@ class TrajectoryEncoder(nn.Module):
 
 class LaneGraphEncoder(nn.Module):
     """
-    Encodes lane graph structure using Graph Neural Networks.
-    
-    Processes lane polylines and their connectivity to create
-    a scene-level representation of the road network.
+    Encodes lane graph structure using GCN convolutions from torch-geometric.
+
+    Accepts node features + sparse edge_index, applies GCNConv layers with
+    residual connections, pools per-graph, and projects to output_dim.
     """
-    
+
     def __init__(
         self,
-        node_dim: int = 16,     # Lane polyline features
-        edge_dim: int = 8,      # Lane connectivity features  
+        node_dim: int = 16,
         hidden_dim: int = 64,
         output_dim: int = 64,
         num_layers: int = 3,
-        use_attention: bool = True,
-        dropout: float = 0.1
+        dropout: float = 0.1,
+        **kwargs,
     ):
         super().__init__()
-        
-        self.num_layers = num_layers
-        self.use_attention = use_attention
-        
-        # Node feature projection
+
         self.node_proj = nn.Linear(node_dim, hidden_dim)
-        
-        # Graph convolution layers (simplified without torch_geometric)
-        self.convs = nn.ModuleList([
-            nn.Linear(hidden_dim, hidden_dim)
-            for _ in range(num_layers)
-        ])
-            
-        # Output projection
+
+        self.convs = nn.ModuleList()
+        self.norms = nn.ModuleList()
+        for _ in range(num_layers):
+            self.convs.append(GCNConv(hidden_dim, hidden_dim))
+            self.norms.append(nn.LayerNorm(hidden_dim))
+
+        self.dropout = nn.Dropout(dropout)
+
         self.output_proj = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, output_dim)
+            nn.Linear(hidden_dim, output_dim),
         )
-        
+
     def forward(
-        self, 
+        self,
         node_features: torch.Tensor,
         edge_index: torch.Tensor,
-        batch: Optional[torch.Tensor] = None
+        batch: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
-        Forward pass through lane graph encoder.
-        
         Args:
             node_features: Node features [N, node_dim]
-            edge_index: Edge connectivity [2, E] (ignored in simplified version)
-            batch: Batch assignment [N] (ignored in simplified version)
-            
+            edge_index: Edge connectivity [2, E]
+            batch: Batch assignment vector [N] (from PyG batching)
+
         Returns:
             Graph-level features [B, output_dim]
         """
-        # Project node features
-        x = self.node_proj(node_features)
-        x = F.relu(x)
-        
-        # Apply simplified graph convolutions (just linear layers)
-        for conv in self.convs:
-            x = conv(x)
+        x = F.relu(self.node_proj(node_features))
+
+        for conv, norm in zip(self.convs, self.norms):
+            residual = x
+            x = conv(x, edge_index)
+            x = norm(x)
             x = F.relu(x)
-            x = F.dropout(x, p=0.1, training=self.training)
-        
-        # Global pooling (mean over all nodes)
-        if batch is not None:
-            # Batch-wise pooling (simplified)
-            batch_size = batch.max().item() + 1
-            pooled = torch.zeros(batch_size, x.size(1), device=x.device)
-            for i in range(batch_size):
-                mask = batch == i
-                if mask.sum() > 0:
-                    pooled[i] = x[mask].mean(dim=0)
-        else:
-            # Single graph - mean over all nodes
-            pooled = x.mean(dim=0, keepdim=True)
-        
-        # Output projection
-        output = self.output_proj(pooled)
-        
-        return output
+            x = self.dropout(x) + residual
+
+        pooled = global_mean_pool(x, batch)
+        return self.output_proj(pooled)
 
 
 class PolylineEncoder(nn.Module):
