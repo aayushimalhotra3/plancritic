@@ -56,7 +56,8 @@ Thumbs.db
 # Project specific
 outputs/
 test_outputs/
-results/
+results/checkpoints/synthetic_v1/checkpoint_epoch_*.pt
+results/checkpoints/synthetic_v1/config.json
 *.log
 training.log
 
