@@ -346,7 +346,8 @@ class PhysicsLoss(nn.Module):
         
         # Compute physics-based pseudo-labels
         risk_target = self.compute_ttc_risk(ego_trajectory, agent_states, agent_mask)
-        comfort_target = self.compute_jerk_penalty(ego_trajectory)
+        # Invert jerk penalty to comfort score (high comfort = low jerk)
+        comfort_target = 1.0 - self.compute_jerk_penalty(ego_trajectory)
         progress_target = self.compute_progress_score(ego_trajectory, route_waypoints)
         
         # Risk loss (collision avoidance)
