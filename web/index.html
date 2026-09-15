@@ -830,7 +830,7 @@
                                 <span class="checkbox-label">Lane Graph</span>
                             </label>
                             <label class="checkbox-wrapper">
-                                <input type="checkbox" id="showCandidates" class="checkbox-input">
+                                <input type="checkbox" id="showCandidates" checked class="checkbox-input">
                                 <span class="checkbox-custom"></span>
                                 <span class="checkbox-label">Candidate Trajectories</span>
                             </label>
@@ -902,12 +902,48 @@
                         <span class="legend-label">Lane Graph</span>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-color" style="background: #10b981;"></div>
-                        <span class="legend-label">Candidates</span>
+                        <div class="legend-color" style="background: linear-gradient(90deg, #00ff28, #ffff00, #ff0028); width: 3rem;"></div>
+                        <span class="legend-label">Candidates (green=safe, red=risky)</span>
                     </div>
                 </div>
             </div>
         </footer>
+
+        <div class="info-panel" style="margin-top: 1rem;">
+            <div class="info-section" style="grid-column: 1 / -1;">
+                <h3><i class="fas fa-chart-bar"></i> Model Metrics (test set)</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-item-label">Collision AUROC</span>
+                        <span class="info-item-value" id="metricAuroc">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-item-label">Spearman (risk)</span>
+                        <span class="info-item-value" id="metricSpearmanRisk">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-item-label">Spearman (comfort)</span>
+                        <span class="info-item-value" id="metricSpearmanComfort">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-item-label">Spearman (progress)</span>
+                        <span class="info-item-value" id="metricSpearmanProgress">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-item-label">MAE risk</span>
+                        <span class="info-item-value" id="metricMaeRisk">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-item-label">MAE comfort</span>
+                        <span class="info-item-value" id="metricMaeComfort">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-item-label">MAE progress</span>
+                        <span class="info-item-value" id="metricMaeProgress">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </body>
 </html>

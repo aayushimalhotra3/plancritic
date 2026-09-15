@@ -24,6 +24,9 @@ Trained on 1000 synthetic scenes, evaluated on a held-out 200-scene test split (
 
 ![Calibration plot](results/plots/calibration.png)
 
+<!-- screenshot: capture with instructions below -->
+![Web viewer](results/plots/viewer.png)
+
 ## Architecture
 
 ```

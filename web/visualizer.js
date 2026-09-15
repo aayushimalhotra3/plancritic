@@ -285,31 +285,41 @@ class TrajectoryVisualizer {
         });
     }
     
+    riskColor(risk) {
+        // green (0) -> yellow (0.5) -> red (1)
+        const r = Math.min(255, Math.floor(risk * 2 * 255));
+        const g = Math.min(255, Math.floor((1 - risk) * 2 * 255));
+        return `rgb(${r}, ${g}, 40)`;
+    }
+
     drawCandidateTrajectories() {
         if (!this.currentScene.candidate_trajectories) return;
-        
-        this.ctx.strokeStyle = '#44ff44';
+
         this.ctx.lineWidth = 2;
-        
-        this.currentScene.candidate_trajectories.forEach(candidate => {
-            if (candidate.waypoints && candidate.waypoints.length > 1) {
-                this.ctx.beginPath();
-                this.ctx.moveTo(candidate.waypoints[0][0], -candidate.waypoints[0][1]);
-                
-                for (let i = 1; i < candidate.waypoints.length; i++) {
-                    this.ctx.lineTo(candidate.waypoints[i][0], -candidate.waypoints[i][1]);
-                }
-                
-                this.ctx.stroke();
-                
-                // Draw waypoints
-                this.ctx.fillStyle = '#44ff44';
-                candidate.waypoints.forEach(waypoint => {
-                    this.ctx.beginPath();
-                    this.ctx.arc(waypoint[0], -waypoint[1], 1, 0, 2 * Math.PI);
-                    this.ctx.fill();
-                });
+
+        this.currentScene.candidate_trajectories.forEach((candidate, idx) => {
+            if (!candidate.waypoints || candidate.waypoints.length < 2) return;
+
+            const risk = (candidate.metadata && candidate.metadata.risk != null)
+                ? candidate.metadata.risk : 0;
+            const color = this.riskColor(risk);
+            this.ctx.strokeStyle = color;
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(candidate.waypoints[0][0], -candidate.waypoints[0][1]);
+            for (let i = 1; i < candidate.waypoints.length; i++) {
+                this.ctx.lineTo(candidate.waypoints[i][0], -candidate.waypoints[i][1]);
             }
+            this.ctx.stroke();
+
+            // Label at endpoint
+            const last = candidate.waypoints[candidate.waypoints.length - 1];
+            const label = candidate.metadata && candidate.metadata.label
+                ? candidate.metadata.label : `#${idx}`;
+            this.ctx.fillStyle = color;
+            this.ctx.font = '4px Inter, Arial, sans-serif';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText(label, last[0] + 1, -last[1]);
         });
     }
     
@@ -461,24 +471,37 @@ document.addEventListener('DOMContentLoaded', () => {
         // Load test data function
         window.loadTestData = async function() {
             try {
-                // Load metadata
-                const metadataResponse = await fetch('./metadata.json');
-                const metadata = await metadataResponse.json();
-                
-                // Load scene data
-                const sceneResponse = await fetch('./scene_training_001.json');
-                const sceneData = await sceneResponse.json();
-                
-                // Create scenes object
-                const scenes = {
-                    [sceneData.scene_id]: sceneData
-                };
-                
-                visualizer.loadScenes(scenes, metadata);
-                visualizer.showStatus('Test data loaded successfully!', 'success');
+                const resp = await fetch('./scene_synthetic_demo.json');
+                const sceneData = await resp.json();
+
+                const scenes = { [sceneData.scene_id]: sceneData };
+                visualizer.loadScenes(scenes, {});
+                visualizer.selectScene(sceneData.scene_id);
+
+                // Show candidates by default
+                const cb = document.getElementById('showCandidates');
+                if (cb && !cb.checked) { cb.checked = true; }
+
+                // Populate metrics panel if present
+                if (sceneData.metrics) {
+                    const m = sceneData.metrics;
+                    const setVal = (id, v) => {
+                        const el = document.getElementById(id);
+                        if (el) el.textContent = typeof v === 'number' ? v.toFixed(3) : v;
+                    };
+                    setVal('metricAuroc', m.collision_auroc);
+                    setVal('metricSpearmanRisk', m.spearman_risk);
+                    setVal('metricSpearmanComfort', m.spearman_comfort);
+                    setVal('metricSpearmanProgress', m.spearman_progress);
+                    setVal('metricMaeRisk', m.mae_risk);
+                    setVal('metricMaeComfort', m.mae_comfort);
+                    setVal('metricMaeProgress', m.mae_progress);
+                }
+
+                visualizer.showStatus('Synthetic demo loaded', 'success');
             } catch (error) {
                 console.error('Error loading test data:', error);
-                visualizer.showStatus('Failed to load test data: ' + error.message, 'error');
+                visualizer.showStatus('Failed to load data: ' + error.message, 'error');
             }
         };
     }, 100);

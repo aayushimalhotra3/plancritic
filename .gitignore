@@ -74,3 +74,4 @@ yarn-error.log*
 !web/metadata.json
 !web/scene_training_001.json
 !web/test_data.json
+!web/scene_synthetic_demo.json
