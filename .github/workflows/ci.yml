@@ -447,7 +447,7 @@ jobs:
       uses: 8398a7/action-slack@v3
       with:
         status: success
-        text: "✅ All CI checks passed for ${{ github.ref }}"
+        text: "All CI checks passed for ${{ github.ref }}"
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     
@@ -456,6 +456,6 @@ jobs:
       uses: 8398a7/action-slack@v3
       with:
         status: failure
-        text: "❌ CI checks failed for ${{ github.ref }}"
+        text: "CI checks failed for ${{ github.ref }}"
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

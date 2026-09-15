@@ -360,11 +360,11 @@ def main():
         
         print("\n=== Demo completed successfully! ===")
         print("\nThis demo showed:")
-        print("✓ Creating and using a TrajectoryCritic model")
-        print("✓ Generating synthetic trajectory data")
-        print("✓ Evaluating trajectory quality with neural networks")
-        print("✓ Physics-based trajectory analysis")
-        print("✓ Computing evaluation metrics")
+        print("- Created and ran a TrajectoryCritic model")
+        print("- Generated synthetic trajectory data")
+        print("- Evaluated trajectory quality with neural networks")
+        print("- Ran physics-based trajectory analysis")
+        print("- Computed evaluation metrics")
         
         print("\nNext steps:")
         print("- Try with real trajectory data (WOMD, Argoverse)")

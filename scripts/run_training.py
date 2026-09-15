@@ -41,7 +41,7 @@ PLOTS_DIR = RESULTS_DIR / "plots"
 SEED = 42
 
 
-# ── helpers ──────────────────────────────────────────────────────────
+# --- helpers ---
 
 def collect_test_predictions(trainer, test_scenes):
     """Run the trained model on test scenes, return predictions + labels."""
@@ -131,7 +131,7 @@ def compute_metrics(data):
     return metrics
 
 
-# ── plotting ─────────────────────────────────────────────────────────
+# --- plotting ---
 
 def plot_auroc(data, save_path):
     collided = data["gt_collided"].astype(int)
@@ -222,14 +222,14 @@ def plot_training_loss(history, save_path):
     log.info(f"Saved loss plot to {save_path}")
 
 
-# ── main ─────────────────────────────────────────────────────────────
+# --- main ---
 
 def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ── configure ──
+    # configure
     config = TrainingConfig()
     config.data["dataset"] = "synthetic"
     config.data["synthetic_seed"] = SEED
@@ -250,7 +250,7 @@ def main():
     config.output["experiment_name"] = "synthetic_v1"
     config.output["save_best_only"] = False
 
-    # ── train ──
+    # train
     log.info("Starting training run")
     trainer = Trainer(config)
     trainer.train()
@@ -269,7 +269,7 @@ def main():
     )
     log.info(f"Saved final checkpoint to {final_ckpt}")
 
-    # ── evaluate on test split ──
+    # evaluate on test split
     log.info("Generating test set")
     test_scenes = SyntheticScenarioGenerator(
         seed=SEED,
@@ -283,25 +283,25 @@ def main():
     data = collect_test_predictions(trainer, test_scenes)
     metrics = compute_metrics(data)
 
-    # ── training history for loss plot ──
+    # training history for loss plot
     history = []
     for i, h in enumerate(trainer.training_history):
         history.append({"epoch": i, **h})
 
-    # ── plots ──
+    # plots
     plot_auroc(data, PLOTS_DIR / "auroc.png")
     plot_spearman(data, PLOTS_DIR / "spearman.png")
     plot_calibration(data, PLOTS_DIR / "calibration.png")
     if history:
         plot_training_loss(history, PLOTS_DIR / "training_loss.png")
 
-    # ── save metrics ──
+    # save metrics
     metrics_path = RESULTS_DIR / "metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
     log.info(f"Saved metrics to {metrics_path}")
 
-    # ── print summary ──
+    # print summary
     print("\n" + "=" * 50)
     print("FINAL TEST METRICS")
     print("=" * 50)

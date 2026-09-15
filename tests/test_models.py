@@ -423,8 +423,8 @@ class TestModelIntegration:
         return agent_states, lane_graph, candidates
 
 
-class TestModelRobustness:
-    """Test model robustness and edge cases."""
+class TestModelEdgeCases:
+    """Test model behavior on edge cases."""
     
     def test_empty_inputs(self):
         """Test model behavior with minimal inputs."""
