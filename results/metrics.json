@@ -1,9 +1,9 @@
 {
-  "collision_auroc": 0.8094966666666666,
-  "spearman_risk": 0.6683122391985926,
-  "spearman_comfort": 0.7500001475830513,
-  "spearman_progress": 0.828290951675545,
-  "mae_risk": 0.4001998651493341,
-  "mae_comfort": 0.030686697100348964,
-  "mae_progress": 0.07673796281218528
+  "collision_auroc": 0.8093100000000001,
+  "spearman_risk": 0.7195520988175961,
+  "spearman_comfort": 0.749265772438543,
+  "spearman_progress": 0.8609705650271233,
+  "mae_risk": 0.3723354193661362,
+  "mae_comfort": 0.033079063598023595,
+  "mae_progress": 0.059215215630829335
 }

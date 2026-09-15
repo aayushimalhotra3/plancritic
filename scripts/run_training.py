@@ -233,12 +233,13 @@ def main():
     config = TrainingConfig()
     config.data["dataset"] = "synthetic"
     config.data["synthetic_seed"] = SEED
-    config.data["synthetic_num_train"] = 600
-    config.data["synthetic_num_val"] = 120
+    config.data["synthetic_num_train"] = 1000
+    config.data["synthetic_num_val"] = 200
     config.data["max_candidates"] = 8
     config.data["prediction_horizon"] = 80
     config.training["batch_size"] = 32
-    config.training["num_epochs"] = 40
+    config.training["num_epochs"] = 80
+    config.training["early_stopping_patience"] = 10
     config.training["learning_rate"] = 3e-4
     config.training["eval_interval"] = 1
     config.training["save_interval"] = 10

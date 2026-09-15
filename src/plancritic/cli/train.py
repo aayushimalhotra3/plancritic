@@ -683,36 +683,51 @@ class Trainer:
         config_path = self.output_dir / "config.json"
         self.config.save_to_file(str(config_path))
         
+        # Early stopping config
+        patience = self.config.training.get("early_stopping_patience", 0)
+        epochs_without_improvement = 0
+
         # Training loop
         for epoch in range(self.current_epoch, self.config.training["num_epochs"]):
             self.current_epoch = epoch
-            
+
             # Train epoch
             train_metrics = self.train_epoch(train_loader)
-            
+
             # Validate epoch
             if epoch % self.config.training["eval_interval"] == 0:
                 val_metrics = self.validate_epoch(val_loader)
-                
+
                 # Update learning rate
                 self.scheduler.step()
-                
+
                 # Log metrics
                 epoch_metrics = {**train_metrics, **val_metrics}
                 self.training_history.append(epoch_metrics)
-                
-                self.logger.info(f"Epoch {epoch}: " + 
+
+                self.logger.info(f"Epoch {epoch}: " +
                                " | ".join([f"{k}: {v:.4f}" for k, v in epoch_metrics.items()]))
-                
+
                 # Save checkpoint
                 is_best = val_metrics["val_loss"] < self.best_val_loss
                 if is_best:
                     self.best_val_loss = val_metrics["val_loss"]
-                    
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+
                 if epoch % self.config.training["save_interval"] == 0 or is_best:
                     if not self.config.output["save_best_only"] or is_best:
                         self.save_checkpoint(epoch, is_best)
-                        
+
+                # Early stopping
+                if patience > 0 and epochs_without_improvement >= patience:
+                    self.logger.info(
+                        f"Early stopping at epoch {epoch} "
+                        f"(no improvement for {patience} epochs)"
+                    )
+                    break
+
         self.logger.info("Training completed!")
 
 
