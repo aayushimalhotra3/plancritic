@@ -102,10 +102,10 @@ The script generates synthetic data, trains for up to 80 epochs with patience-10
 ## Citation
 
 ```bibtex
-@software{plancritic2025,
+@software{plancritic2026,
   title={PlanCritic: Learned Trajectory Evaluation for Autonomous Vehicles},
   author={Aayushi Malhotra},
-  year={2025},
+  year={2026},
   url={https://github.com/aayushimalhotra3/plancritic}
 }
 ```
